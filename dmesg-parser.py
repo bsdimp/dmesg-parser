@@ -4,6 +4,7 @@
 import argparse
 import os
 import re
+import copy
 
 class DmesgFile(object):
     release = None
@@ -13,17 +14,18 @@ class DmesgFile(object):
     ncpu = None
     drivers = set([])
 
-    RELEASE_RE = re.compile(r'^(FreeBSD \d+.\d+.*) #\d+.*$')
+    RELEASE_RE = re.compile(r'^FreeBSD (\d+).\d+[^-]*-.*$')
     MEMORY_RE = re.compile(r'^real memory\s+=\s+(\d+).*$')
     CPU_RE = re.compile(r'^CPU: (.*)$')
     # This works only for x86 systems
     # ARM has less defined format for CPU models
     FREQ_RE = re.compile(r'\((\d+\.\d+)-MHz')
-    DEVICE_RE = re.compile(r'(\w+)\d+: .* on \w+$')
+    DEVICE_RE = re.compile(r'([a-z]+)\d+: .* on \w+$')
     NCPU_RE = re.compile('FreeBSD/SMP: Multiprocessor System Detected: (\d+) CPUs')
 
     def __init__(self, path):
         self.__path = path
+        self.drivers = set([])
         self.__parse()
 
     def __repr__(self):
@@ -32,7 +34,11 @@ class DmesgFile(object):
     def __parse(self):
         dmesg_data = None
         with open(self.__path, 'r') as f:
-            dmesg_data = f.read()
+            try:
+                dmesg_data = f.read()
+            except:
+#               print('Bad file ', self.__path);
+                dmesg_data = ''
         lines = dmesg_data.split('\n')
         for line in lines:
             if self.release is None:
@@ -58,13 +64,10 @@ class DmesgFile(object):
                 if match:
                     self.ncpu = match.group(1)
                     continue
-
             match = self.DEVICE_RE.match(line)
             if match:
                 driver = match.group(1)
                 self.drivers.add(driver)
-
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('datadir', type=str, help='directory with dmesg files')
@@ -84,6 +87,43 @@ for path in os.listdir(args.datadir):
         continue
 
     dmesg = DmesgFile(full_path)
-    dmesgs.append(dmesg)
+    if dmesg.release is None:
+        continue
+    dmesgs.append(copy.deepcopy(dmesg))
 
-print (dmesgs)
+release = {}
+for d in dmesgs:
+    r = int(d.release)
+    if r in release:
+        release[r] = release[r] + 1
+    else:
+        release[r] = 1
+# This works 
+print ('major, count')
+total = 0
+for r in release:
+    print (r, ',', release[r])
+    total = total + release[r]
+print('total', ',', total)
+print('')
+
+# and this works
+drv_count = {}
+for d in dmesgs:
+    r = int(d.release)
+    for drv in d.drivers:
+        if drv in drv_count:
+            drv_count[drv] = drv_count[drv] + 1
+        else:
+            drv_count[drv] = 1
+for d in drv_count:
+    print (d, drv_count[d])
+
+# but this doesn't work, ideas
+d_vs_r = [[0 for x in drv_count] for y in release]
+for d in dmesgs:
+    r = int(d.release)
+    for drv in d.drivers:
+        d_vs_r[drv][r] = d_vs_r[drv][r] + 1
+for d in drv_count:
+    print (drv, d_vs_r[drv])
